@@ -1,0 +1,960 @@
+openapi: 3.0.3
+info:
+  title: Fake OpenStack API
+  description: |
+    A mock OpenStack-compatible API server for testing purposes.
+    This API simulates Keystone (auth), Nova (compute), Cinder (volumes), and Neutron (networking) services.
+    
+    **Default Credentials:**
+    - Username: `admin`, Password: `admin123`, Domain: `default`
+    - Username: `demo`, Password: `demo123`, Domain: `default`
+    
+    After authentication, include the token in the `X-Auth-Token` header for all API requests.
+  version: 1.0.0
+  contact:
+    name: Mock OpenStack API
+
+servers:
+  - url: http://localhost:5000
+    description: Local development server
+  - url: http://{host}:{port}
+    description: Custom server
+    variables:
+      host:
+        default: localhost
+      port:
+        default: "5000"
+
+tags:
+  - name: Authentication
+    description: Keystone authentication endpoints
+  - name: Flavors
+    description: Compute flavors (instance types)
+  - name: Images
+    description: OS images
+  - name: Servers
+    description: Compute instances (VMs)
+  - name: Volumes
+    description: Block storage volumes
+  - name: Floating IPs
+    description: Floating IP addresses
+  - name: Keypairs
+    description: SSH keypairs
+  - name: Networks
+    description: Neutron networks
+
+paths:
+  /v3/auth/tokens:
+    post:
+      tags:
+        - Authentication
+      summary: Authenticate and get token
+      description: |
+        Authenticates a user with username/password and returns an authentication token.
+        The token is returned in both the response body and the X-Subject-Token header.
+        Use this token in the X-Auth-Token header for all subsequent API requests.
+      operationId: authenticate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+            example:
+              auth:
+                identity:
+                  methods:
+                    - password
+                  password:
+                    user:
+                      name: admin
+                      domain:
+                        name: default
+                      password: admin123
+                scope:
+                  project:
+                    name: admin
+                    domain:
+                      name: default
+      responses:
+        '201':
+          description: Authentication successful
+          headers:
+            X-Subject-Token:
+              description: Authentication token (use in X-Auth-Token header for API calls)
+              schema:
+                type: string
+                example: token-abc12345
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Bad request (invalid request format)
+        '401':
+          description: Unauthorized (invalid credentials)
+        '405':
+          description: Method not allowed
+
+  /v2.1/flavors:
+    get:
+      tags:
+        - Flavors
+      summary: List all flavors
+      description: Returns a list of all available compute flavors (instance types)
+      operationId: listFlavors
+      security:
+        - OpenStackAuth: []
+      responses:
+        '200':
+          description: List of flavors
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flavors:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Flavor'
+        '405':
+          description: Method not allowed
+    post:
+      tags:
+        - Flavors
+      summary: Create a custom flavor
+      description: Creates a new custom compute flavor with specified resources
+      operationId: createFlavor
+      security:
+        - OpenStackAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFlavorRequest'
+            example:
+              flavor:
+                name: custom-large
+                vcpus: 8
+                ram: 16384
+                disk: 100
+      responses:
+        '201':
+          description: Flavor created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flavor:
+                    $ref: '#/components/schemas/Flavor'
+        '400':
+          description: Bad request (missing or invalid fields)
+        '409':
+          description: Flavor with this name already exists
+        '405':
+          description: Method not allowed
+
+  /v2.1/flavors/detail:
+    get:
+      tags:
+        - Flavors
+      summary: List all flavors (detailed)
+      description: Returns a detailed list of all available compute flavors (instance types)
+      operationId: listFlavorsDetail
+      responses:
+        '200':
+          description: List of flavors
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flavors:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Flavor'
+        '405':
+          description: Method not allowed
+
+  /v2.1/images:
+    get:
+      tags:
+        - Images
+      summary: List all images
+      description: Returns a list of all available OS images
+      operationId: listImages
+      security:
+        - OpenStackAuth: []
+      responses:
+        '200':
+          description: List of images
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Image'
+        '405':
+          description: Method not allowed
+
+  /v2.1/volumes:
+    get:
+      tags:
+        - Volumes
+      summary: List all volumes
+      description: Returns a list of all block storage volumes
+      operationId: listVolumes
+      responses:
+        '200':
+          description: List of volumes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  volumes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Volume'
+        '405':
+          description: Method not allowed
+
+  /v2.1/floatingips:
+    get:
+      tags:
+        - Floating IPs
+      summary: List all floating IPs
+      description: Returns a list of all floating IP addresses
+      operationId: listFloatingIPs
+      responses:
+        '200':
+          description: List of floating IPs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  floatingips:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FloatingIP'
+        '405':
+          description: Method not allowed
+
+  /v2.1/os-keypairs:
+    get:
+      tags:
+        - Keypairs
+      summary: List all keypairs
+      description: Returns a list of keypairs (os-keypairs)
+      operationId: listKeypairs
+      security:
+        - OpenStackAuth: []
+      responses:
+        '200':
+          description: List of keypairs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keypairs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Keypair'
+        '405':
+          description: Method not allowed
+    post:
+      tags:
+        - Keypairs
+      summary: Create keypair
+      description: Creates a keypair with provided public key
+      operationId: createKeypair
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                keypair:
+                  type: object
+                  required: [name, public_key]
+                  properties:
+                    name:
+                      type: string
+                      example: demo
+                    public_key:
+                      type: string
+                      example: ssh-rsa AAAAB3Nz... demo
+      responses:
+        '201':
+          description: Keypair created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keypair:
+                    $ref: '#/components/schemas/Keypair'
+        '400':
+          description: Bad request
+        '405':
+          description: Method not allowed
+        '409':
+          description: Keypair already exists
+
+  /v2.1/networks:
+    get:
+      tags:
+        - Networks
+      summary: List networks
+      description: Returns a list of networks
+      operationId: listNetworks
+      security:
+        - OpenStackAuth: []
+      responses:
+        '200':
+          description: List of networks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  networks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Network'
+        '405':
+          description: Method not allowed
+
+  /v2.1/servers:
+    get:
+      tags:
+        - Servers
+      summary: List all servers
+      description: Returns a list of all compute instances (VMs)
+      operationId: listServers
+      security:
+        - OpenStackAuth: []
+      responses:
+        '200':
+          description: List of servers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Server'
+        '405':
+          description: Method not allowed
+    post:
+      tags:
+        - Servers
+      summary: Create a new server
+      description: Creates a new compute instance (VM) with the specified image and flavor
+      operationId: createServer
+      security:
+        - OpenStackAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServerRequest'
+            example:
+              server:
+                name: my-vm
+                imageRef: img-ubuntu
+                flavorRef: "1"
+      responses:
+        '202':
+          description: Server creation accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  server:
+                    $ref: '#/components/schemas/Server'
+        '400':
+          description: Bad request (missing fields or invalid references)
+        '405':
+          description: Method not allowed
+
+  /v2.1/servers/{serverId}:
+    get:
+      tags:
+        - Servers
+      summary: Get server details
+      description: Returns detailed information about a specific server
+      operationId: getServer
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: string
+            example: srv-abc12345
+      responses:
+        '200':
+          description: Server details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  server:
+                    $ref: '#/components/schemas/Server'
+        '404':
+          description: Server not found
+        '405':
+          description: Method not allowed
+    delete:
+      tags:
+        - Servers
+      summary: Delete a server
+      description: |
+        Deletes a server instance.
+        This will automatically detach all volumes and release any associated floating IPs.
+      operationId: deleteServer
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: string
+            example: srv-abc12345
+      responses:
+        '204':
+          description: Server deleted successfully
+        '404':
+          description: Server not found
+        '405':
+          description: Method not allowed
+
+  /v2.1/servers/{serverId}/action:
+    post:
+      tags:
+        - Servers
+      summary: Perform server action
+      description: |
+        Performs an action on a server. The request body must contain exactly one action.
+        
+        Available actions:
+        - `os-start`: Start a stopped server
+        - `os-stop`: Stop a running server
+        - `reboot`: Reboot a server
+        - `attach_volume`: Attach a volume to the server
+        - `detach_volume`: Detach a volume from the server
+        - `associate_floating_ip`: Associate a floating IP with the server
+        - `disassociate_floating_ip`: Disassociate a floating IP from the server
+      operationId: serverAction
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: string
+            example: srv-abc12345
+      requestBody:
+        required: true
+        description: Action to perform (must contain exactly one action)
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/StartAction'
+                - $ref: '#/components/schemas/StopAction'
+                - $ref: '#/components/schemas/RebootAction'
+                - $ref: '#/components/schemas/AttachVolumeAction'
+                - $ref: '#/components/schemas/DetachVolumeAction'
+                - $ref: '#/components/schemas/AssociateFloatingIPAction'
+                - $ref: '#/components/schemas/DisassociateFloatingIPAction'
+            examples:
+              start:
+                summary: Start server
+                value:
+                  os-start: null
+              stop:
+                summary: Stop server
+                value:
+                  os-stop: null
+              reboot:
+                summary: Reboot server
+                value:
+                  reboot:
+                    type: SOFT
+              attach_volume:
+                summary: Attach volume
+                value:
+                  attach_volume:
+                    volumeId: vol-1
+              detach_volume:
+                summary: Detach volume
+                value:
+                  detach_volume:
+                    volumeId: vol-1
+              associate_floating_ip:
+                summary: Associate floating IP
+                value:
+                  associate_floating_ip:
+                    floatingIpId: fip-1
+              disassociate_floating_ip:
+                summary: Disassociate floating IP
+                value:
+                  disassociate_floating_ip:
+                    floatingIpId: fip-1
+      responses:
+        '202':
+          description: Action accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  server:
+                    $ref: '#/components/schemas/Server'
+        '400':
+          description: Bad request (invalid action or parameters)
+        '404':
+          description: Server not found
+        '405':
+          description: Method not allowed
+
+components:
+  securitySchemes:
+    OpenStackAuth:
+      type: http
+      scheme: bearer
+      description: |
+        OpenStack token authentication. 
+        Include the token from /v3/auth/tokens in the X-Auth-Token header.
+        Example: X-Auth-Token: token-abc12345
+  
+  schemas:
+    AuthRequest:
+      type: object
+      required:
+        - auth
+      properties:
+        auth:
+          type: object
+          required:
+            - identity
+          properties:
+            identity:
+              type: object
+              required:
+                - methods
+                - password
+              properties:
+                methods:
+                  type: array
+                  items:
+                    type: string
+                    enum: [password]
+                password:
+                  type: object
+                  required:
+                    - user
+                  properties:
+                    user:
+                      type: object
+                      required:
+                        - name
+                        - password
+                      properties:
+                        name:
+                          type: string
+                          example: admin
+                        domain:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                              example: default
+                        password:
+                          type: string
+                          format: password
+                          example: admin123
+            scope:
+              type: object
+              properties:
+                project:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      example: admin
+                    domain:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          example: default
+    
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          $ref: '#/components/schemas/Token'
+    
+    TokenResponse:
+      type: object
+      properties:
+        token:
+          $ref: '#/components/schemas/Token'
+    
+    Token:
+      type: object
+      properties:
+        id:
+          type: string
+          example: fake-token-abc12345
+        user:
+          $ref: '#/components/schemas/User'
+        project:
+          $ref: '#/components/schemas/Project'
+        expires_at:
+          type: string
+          format: date-time
+          example: "2024-12-31T23:59:59Z"
+    
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          example: user-1
+        name:
+          type: string
+          example: fake-user
+        domain_id:
+          type: string
+          example: default
+    
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+          example: project-1
+        name:
+          type: string
+          example: fake-project
+        domain_id:
+          type: string
+          example: default
+    
+    Flavor:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "1"
+        name:
+          type: string
+          example: m1.small
+        vcpus:
+          type: integer
+          example: 1
+        ram_mb:
+          type: integer
+          example: 2048
+        disk_gb:
+          type: integer
+          example: 20
+    
+    Image:
+      type: object
+      properties:
+        id:
+          type: string
+          example: img-ubuntu
+        name:
+          type: string
+          example: Ubuntu 22.04
+        os_disk_gb:
+          type: integer
+          example: 20
+        os:
+          type: string
+          example: linux
+        description:
+          type: string
+          example: Ubuntu 22.04 LTS
+    
+    Server:
+      type: object
+      properties:
+        id:
+          type: string
+          example: srv-abc12345
+        name:
+          type: string
+          example: my-vm
+        status:
+          type: string
+          enum: [ACTIVE, SHUTOFF, REBOOTING, BUILDING, ERROR]
+          example: ACTIVE
+        power_state:
+          type: string
+          enum: [ON, OFF]
+          example: ON
+        flavor:
+          $ref: '#/components/schemas/FlavorRef'
+        image:
+          $ref: '#/components/schemas/ImageRef'
+        attached_volumes:
+          type: array
+          items:
+            $ref: '#/components/schemas/VolumeAttachment'
+        floating_ip:
+          $ref: '#/components/schemas/FloatingIPRef'
+          nullable: true
+        created:
+          type: string
+          format: date-time
+          example: "2024-01-01T12:00:00Z"
+    
+    FlavorRef:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "1"
+    
+    ImageRef:
+      type: object
+      properties:
+        id:
+          type: string
+          example: img-ubuntu
+    
+    Volume:
+      type: object
+      properties:
+        id:
+          type: string
+          example: vol-1
+        name:
+          type: string
+          example: db-data
+        size_gb:
+          type: integer
+          example: 20
+        status:
+          type: string
+          enum: [available, in-use, creating, deleting, error]
+          example: available
+        attached_to:
+          type: string
+          nullable: true
+          example: srv-abc12345
+    
+    VolumeAttachment:
+      type: object
+      properties:
+        id:
+          type: string
+          example: att-xyz67890
+        volume_id:
+          type: string
+          example: vol-1
+        device:
+          type: string
+          example: /dev/vdb
+    
+    FloatingIP:
+      type: object
+      properties:
+        id:
+          type: string
+          example: fip-1
+        address:
+          type: string
+          format: ipv4
+          example: 192.0.2.101
+        server_id:
+          type: string
+          nullable: true
+          example: srv-abc12345
+    
+    FloatingIPRef:
+      type: object
+      properties:
+        id:
+          type: string
+          example: fip-1
+        address:
+          type: string
+          format: ipv4
+          example: 192.0.2.101
+    
+    CreateServerRequest:
+      type: object
+      required:
+        - server
+      properties:
+        server:
+          type: object
+          required:
+            - name
+            - imageRef
+            - flavorRef
+          properties:
+            name:
+              type: string
+              example: my-vm
+            imageRef:
+              type: string
+              example: img-ubuntu
+            flavorRef:
+              type: string
+              example: "1"
+    
+    CreateFlavorRequest:
+      type: object
+      required:
+        - flavor
+      properties:
+        flavor:
+          type: object
+          required:
+            - name
+            - vcpus
+            - ram
+            - disk
+          properties:
+            name:
+              type: string
+              example: custom-large
+            vcpus:
+              type: integer
+              minimum: 1
+              example: 8
+            ram:
+              type: integer
+              minimum: 1
+              description: RAM in MB
+              example: 16384
+            disk:
+              type: integer
+              minimum: 0
+              description: Disk size in GB
+              example: 100
+    
+    StartAction:
+      type: object
+      properties:
+        os-start:
+          type: object
+          nullable: true
+    
+    StopAction:
+      type: object
+      properties:
+        os-stop:
+          type: object
+          nullable: true
+    
+    RebootAction:
+      type: object
+      properties:
+        reboot:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [SOFT, HARD]
+              default: SOFT
+    
+    AttachVolumeAction:
+      type: object
+      properties:
+        attach_volume:
+          type: object
+          required:
+            - volumeId
+          properties:
+            volumeId:
+              type: string
+              example: vol-1
+    
+    DetachVolumeAction:
+      type: object
+      properties:
+        detach_volume:
+          type: object
+          required:
+            - volumeId
+          properties:
+            volumeId:
+              type: string
+              example: vol-1
+    
+    AssociateFloatingIPAction:
+      type: object
+      properties:
+        associate_floating_ip:
+          type: object
+          required:
+            - floatingIpId
+          properties:
+            floatingIpId:
+              type: string
+              example: fip-1
+    
+    DisassociateFloatingIPAction:
+      type: object
+      properties:
+        disassociate_floating_ip:
+          type: object
+          required:
+            - floatingIpId
+          properties:
+            floatingIpId:
+              type: string
+              example: fip-1
+
+    Keypair:
+      type: object
+      properties:
+        name:
+          type: string
+          example: demo
+        public_key:
+          type: string
+          example: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCsDemoKey mock-user
+        fingerprint:
+          type: string
+          example: aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99
+        user_id:
+          type: string
+          example: user-1
+
+    Network:
+      type: object
+      properties:
+        id:
+          type: string
+          example: net-1
+        name:
+          type: string
+          example: public
+        cidr:
+          type: string
+          example: 192.0.2.0/24
+
