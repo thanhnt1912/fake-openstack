@@ -6,6 +6,7 @@ type Token struct {
 	ID        string    `json:"id"`
 	User      User      `json:"user"`
 	Project   Project   `json:"project"`
+	Roles     []Role    `json:"roles"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
@@ -19,6 +20,11 @@ type Project struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	DomainID string `json:"domain_id"`
+}
+
+type Role struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type Flavor struct {
@@ -153,4 +159,5 @@ type StoredUser struct {
 	DomainID    string
 	ProjectID   string
 	ProjectName string
+	Role        string // Role name: "admin" or "member"
 }

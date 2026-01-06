@@ -89,6 +89,7 @@ func init() {
 				DomainID:    "default",
 				ProjectID:   "project-admin",
 				ProjectName: "admin",
+				Role:        "admin",
 			},
 			"demo": {
 				ID:          "user-demo",
@@ -97,6 +98,7 @@ func init() {
 				DomainID:    "default",
 				ProjectID:   "project-demo",
 				ProjectName: "demo",
+				Role:        "member",
 			},
 		},
 		tokens: make(map[string]Token),
@@ -227,6 +229,23 @@ func handleAuthTokens(w http.ResponseWriter, r *http.Request) {
 	// Create token
 	now := time.Now().UTC()
 	tokenID := "token-" + randomID()
+
+	// Determine role based on user
+	var roleName string
+	if user.Role != "" {
+		roleName = user.Role
+	} else {
+		// Default to member if role not set
+		roleName = "member"
+	}
+
+	// Create role based on user's role
+	roleID := "role-" + roleName
+	role := Role{
+		ID:   roleID,
+		Name: roleName,
+	}
+
 	t := Token{
 		ID: tokenID,
 		User: User{
@@ -239,6 +258,7 @@ func handleAuthTokens(w http.ResponseWriter, r *http.Request) {
 			Name:     projectName,
 			DomainID: user.DomainID,
 		},
+		Roles:     []Role{role},
 		ExpiresAt: now.Add(24 * time.Hour),
 	}
 
