@@ -42,6 +42,8 @@ tags:
     description: SSH keypairs
   - name: Networks
     description: Neutron networks
+  - name: Quotas
+    description: Resource quotas for projects
 
 paths:
   /v3/auth/tokens:
@@ -533,6 +535,106 @@ paths:
         '405':
           description: Method not allowed
 
+  /v2.1/os-quota-sets/{project_id}:
+    get:
+      tags:
+        - Quotas
+      summary: Get quota for a project
+      description: |
+        Returns quota limits for a project. 
+        Users can only access their own project quotas unless they are admin.
+        Add ?usage=True to include current usage statistics.
+      operationId: getQuota
+      security:
+        - OpenStackAuth: []
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Project ID
+          example: project-admin
+        - name: usage
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [True, true, False, false]
+          description: Include usage statistics
+      responses:
+        '200':
+          description: Quota information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quota_set:
+                    oneOf:
+                      - $ref: '#/components/schemas/Quota'
+                      - $ref: '#/components/schemas/QuotaUsage'
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden (not admin and not own project)
+        '405':
+          description: Method not allowed
+    put:
+      tags:
+        - Quotas
+      summary: Update quota for a project
+      description: |
+        Updates quota limits for a project. Only admin users can update quotas.
+      operationId: updateQuota
+      security:
+        - OpenStackAuth: []
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Project ID
+          example: project-admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateQuotaRequest'
+            example:
+              quota_set:
+                instances: 50
+                cores: 100
+                ram: 256000
+                volumes: 20
+                volumes_gb: 2000
+                floating_ips: 10
+                networks: 5
+                key_pairs: 20
+                security_groups: 50
+      responses:
+        '200':
+          description: Quota updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quota_set:
+                    $ref: '#/components/schemas/Quota'
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden (not admin)
+        '405':
+          description: Method not allowed
+
 components:
   securitySchemes:
     OpenStackAuth:
@@ -627,6 +729,10 @@ components:
           $ref: '#/components/schemas/User'
         project:
           $ref: '#/components/schemas/Project'
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
         expires_at:
           type: string
           format: date-time
@@ -657,6 +763,16 @@ components:
         domain_id:
           type: string
           example: default
+    
+    Role:
+      type: object
+      properties:
+        id:
+          type: string
+          example: role-admin
+        name:
+          type: string
+          example: admin
     
     Flavor:
       type: object
@@ -957,4 +1073,119 @@ components:
         cidr:
           type: string
           example: 192.0.2.0/24
+    
+    Quota:
+      type: object
+      properties:
+        project_id:
+          type: string
+          example: project-admin
+        instances:
+          type: integer
+          description: Maximum number of instances
+          example: 100
+        cores:
+          type: integer
+          description: Maximum number of CPU cores
+          example: 200
+        ram:
+          type: integer
+          description: Maximum RAM in MB
+          example: 512000
+        volumes:
+          type: integer
+          description: Maximum number of volumes
+          example: 50
+        volumes_gb:
+          type: integer
+          description: Maximum total volume size in GB
+          example: 5000
+        floating_ips:
+          type: integer
+          description: Maximum number of floating IPs
+          example: 20
+        networks:
+          type: integer
+          description: Maximum number of networks
+          example: 10
+        key_pairs:
+          type: integer
+          description: Maximum number of key pairs
+          example: 50
+        security_groups:
+          type: integer
+          description: Maximum number of security groups
+          example: 100
+    
+    QuotaUsage:
+      type: object
+      properties:
+        quota:
+          $ref: '#/components/schemas/Quota'
+        usage:
+          type: object
+          properties:
+            instances:
+              type: integer
+              example: 5
+            cores:
+              type: integer
+              example: 10
+            ram:
+              type: integer
+              example: 20480
+            volumes:
+              type: integer
+              example: 3
+            volumes_gb:
+              type: integer
+              example: 100
+            floating_ips:
+              type: integer
+              example: 2
+            networks:
+              type: integer
+              example: 1
+            key_pairs:
+              type: integer
+              example: 2
+            security_groups:
+              type: integer
+              example: 5
+    
+    UpdateQuotaRequest:
+      type: object
+      required:
+        - quota_set
+      properties:
+        quota_set:
+          type: object
+          properties:
+            instances:
+              type: integer
+              minimum: 0
+            cores:
+              type: integer
+              minimum: 0
+            ram:
+              type: integer
+              minimum: 0
+            volumes:
+              type: integer
+              minimum: 0
+            volumes_gb:
+              type: integer
+              minimum: 0
+            floating_ips:
+              type: integer
+              minimum: 0
+            networks:
+              type: integer
+              minimum: 0
+            key_pairs:
+              type: integer
+              minimum: 0
+            security_groups:
+              type: integer
+              minimum: 0
 

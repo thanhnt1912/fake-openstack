@@ -29,6 +29,7 @@ type store struct {
 	servers     map[string]Server
 	users       map[string]StoredUser // username -> user
 	tokens      map[string]Token      // token ID -> token
+	quotas      map[string]Quota      // project ID -> quota
 }
 
 var s *store
@@ -102,6 +103,44 @@ func init() {
 			},
 		},
 		tokens: make(map[string]Token),
+		quotas: map[string]Quota{
+			"project-admin": {
+				ProjectID:      "project-admin",
+				Instances:      100,
+				Cores:          200,
+				RAM:            512000, // 500 GB in MB
+				Volumes:        50,
+				VolumesGB:      5000,
+				FloatingIPs:    20,
+				Networks:       10,
+				KeyPairs:       50,
+				SecurityGroups: 100,
+			},
+			"project-admin-noti": {
+				ProjectID:      "project-admin-noti",
+				Instances:      1,
+				Cores:          1,
+				RAM:            1, 
+				Volumes:        1,
+				VolumesGB:      1,
+				FloatingIPs:    20,
+				Networks:       10,
+				KeyPairs:       50,
+				SecurityGroups: 100,
+			},
+			"project-demo": {
+				ProjectID:      "project-demo",
+				Instances:      10,
+				Cores:          20,
+				RAM:            51200, // 50 GB in MB
+				Volumes:        10,
+				VolumesGB:      500,
+				FloatingIPs:    5,
+				Networks:       3,
+				KeyPairs:       10,
+				SecurityGroups: 20,
+			},
+		},
 	}
 }
 
@@ -130,6 +169,7 @@ func main() {
 	mux.HandleFunc("/v2.1/networks", requireAuth(handleNetworks))
 	mux.HandleFunc("/v2.1/servers", requireAuth(handleServersRoot))
 	mux.HandleFunc("/v2.1/servers/", requireAuth(handleServerByID))
+	mux.HandleFunc("/v2.1/os-quota-sets/", requireAuth(handleQuotaSets))
 
 	log.Printf("Fake OpenStack server listening on %s", *addr)
 	log.Printf("Swagger UI available at http://localhost%s/swagger/", *addr)
@@ -992,6 +1032,251 @@ func randomID() string {
 		b[i] = letters[rand.Intn(len(letters))]
 	}
 	return string(b)
+}
+
+// --- Quota Handlers ---
+
+// getProjectIDFromToken extracts project ID from the authentication token
+func getProjectIDFromToken(r *http.Request) (string, error) {
+	tokenID := r.Header.Get("X-Auth-Token")
+	if tokenID == "" {
+		tokenID = r.Header.Get("X-Subject-Token")
+	}
+	if tokenID == "" {
+		return "", errUnauthorized
+	}
+
+	token, err := validateToken(tokenID)
+	if err != nil {
+		return "", err
+	}
+
+	return token.Project.ID, nil
+}
+
+// calculateUsage calculates current resource usage for a project
+func calculateUsage(projectID string) (map[string]int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	usage := make(map[string]int)
+
+	// Count instances (servers)
+	instanceCount := 0
+	coreCount := 0
+	ramCount := 0
+	for _, server := range s.servers {
+		// Check if server belongs to this project (simplified: all servers belong to project)
+		instanceCount++
+		if flavor, ok := s.flavors[server.Flavor.ID]; ok {
+			coreCount += flavor.VCPUs
+			ramCount += flavor.RAM
+		}
+	}
+	usage["instances"] = instanceCount
+	usage["cores"] = coreCount
+	usage["ram"] = ramCount
+
+	// Count volumes
+	volumeCount := 0
+	volumeGB := 0
+	for _, vol := range s.volumes {
+		volumeCount++
+		volumeGB += vol.SizeGB
+	}
+	usage["volumes"] = volumeCount
+	usage["volumes_gb"] = volumeGB
+
+	// Count floating IPs
+	fipCount := 0
+	for _, fip := range s.floatingIPs {
+		if fip.ServerID != "" {
+			fipCount++
+		}
+	}
+	usage["floating_ips"] = fipCount
+
+	// Count networks
+	usage["networks"] = len(s.networks)
+
+	// Count keypairs
+	usage["key_pairs"] = len(s.keypairs)
+
+	// Security groups (mock - not implemented yet)
+	usage["security_groups"] = 0
+
+	return usage, nil
+}
+
+// handleQuotaSets handles quota-related requests
+func handleQuotaSets(w http.ResponseWriter, r *http.Request) {
+	// Extract project ID from URL path: /v2.1/os-quota-sets/{project_id}
+	path := strings.TrimPrefix(r.URL.Path, "/v2.1/os-quota-sets/")
+	path = strings.Trim(path, "/")
+
+	if path == "" {
+		http.Error(w, "project ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Get project ID from token to verify access
+	tokenProjectID, err := getProjectIDFromToken(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	// Check if user is admin or accessing their own project
+	tokenID := r.Header.Get("X-Auth-Token")
+	if tokenID == "" {
+		tokenID = r.Header.Get("X-Subject-Token")
+	}
+	token, _ := validateToken(tokenID)
+	isAdmin := false
+	if token != nil {
+		for _, role := range token.Roles {
+			if role.Name == "admin" {
+				isAdmin = true
+				break
+			}
+		}
+	}
+
+	// Non-admin users can only access their own project quotas
+	if !isAdmin && path != tokenProjectID {
+		http.Error(w, "forbidden: can only access own project quotas", http.StatusForbidden)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		handleQuotaGet(w, r, path)
+	case http.MethodPut:
+		if !isAdmin {
+			http.Error(w, "forbidden: only admin can update quotas", http.StatusForbidden)
+			return
+		}
+		handleQuotaUpdate(w, r, path)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func handleQuotaGet(w http.ResponseWriter, r *http.Request, projectID string) {
+	s.mu.RLock()
+	quota, exists := s.quotas[projectID]
+	s.mu.RUnlock()
+
+	if !exists {
+		// Return default quota if not found
+		quota = Quota{
+			ProjectID:      projectID,
+			Instances:      10,
+			Cores:          20,
+			RAM:            51200,
+			Volumes:        10,
+			VolumesGB:      500,
+			FloatingIPs:    5,
+			Networks:       3,
+			KeyPairs:       10,
+			SecurityGroups: 20,
+		}
+	}
+
+	// Check if usage is requested
+	usageParam := r.URL.Query().Get("usage")
+	if usageParam == "True" || usageParam == "true" {
+		usage, err := calculateUsage(projectID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		quotaUsage := QuotaUsage{
+			Quota: quota,
+		}
+		quotaUsage.Usage.Instances = usage["instances"]
+		quotaUsage.Usage.Cores = usage["cores"]
+		quotaUsage.Usage.RAM = usage["ram"]
+		quotaUsage.Usage.Volumes = usage["volumes"]
+		quotaUsage.Usage.VolumesGB = usage["volumes_gb"]
+		quotaUsage.Usage.FloatingIPs = usage["floating_ips"]
+		quotaUsage.Usage.Networks = usage["networks"]
+		quotaUsage.Usage.KeyPairs = usage["key_pairs"]
+		quotaUsage.Usage.SecurityGroups = usage["security_groups"]
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"quota_set": quotaUsage,
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"quota_set": quota,
+	})
+}
+
+func handleQuotaUpdate(w http.ResponseWriter, r *http.Request, projectID string) {
+	var req UpdateQuotaRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	quota, exists := s.quotas[projectID]
+	if !exists {
+		// Create new quota with defaults
+		quota = Quota{
+			ProjectID:      projectID,
+			Instances:      10,
+			Cores:          20,
+			RAM:            51200,
+			Volumes:        10,
+			VolumesGB:      500,
+			FloatingIPs:    5,
+			Networks:       3,
+			KeyPairs:       10,
+			SecurityGroups: 20,
+		}
+	}
+
+	// Update only provided fields
+	if req.QuotaSet.Instances != nil {
+		quota.Instances = *req.QuotaSet.Instances
+	}
+	if req.QuotaSet.Cores != nil {
+		quota.Cores = *req.QuotaSet.Cores
+	}
+	if req.QuotaSet.RAM != nil {
+		quota.RAM = *req.QuotaSet.RAM
+	}
+	if req.QuotaSet.Volumes != nil {
+		quota.Volumes = *req.QuotaSet.Volumes
+	}
+	if req.QuotaSet.VolumesGB != nil {
+		quota.VolumesGB = *req.QuotaSet.VolumesGB
+	}
+	if req.QuotaSet.FloatingIPs != nil {
+		quota.FloatingIPs = *req.QuotaSet.FloatingIPs
+	}
+	if req.QuotaSet.Networks != nil {
+		quota.Networks = *req.QuotaSet.Networks
+	}
+	if req.QuotaSet.KeyPairs != nil {
+		quota.KeyPairs = *req.QuotaSet.KeyPairs
+	}
+	if req.QuotaSet.SecurityGroups != nil {
+		quota.SecurityGroups = *req.QuotaSet.SecurityGroups
+	}
+
+	s.quotas[projectID] = quota
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"quota_set": quota,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

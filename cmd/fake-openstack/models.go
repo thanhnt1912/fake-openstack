@@ -161,3 +161,48 @@ type StoredUser struct {
 	ProjectName string
 	Role        string // Role name: "admin" or "member"
 }
+
+// Quota represents resource quotas for a project
+type Quota struct {
+	ProjectID     string `json:"project_id,omitempty"`
+	Instances     int    `json:"instances"`
+	Cores         int    `json:"cores"`
+	RAM           int    `json:"ram"` // in MB
+	Volumes       int    `json:"volumes"`
+	VolumesGB     int    `json:"volumes_gb"`
+	FloatingIPs   int    `json:"floating_ips"`
+	Networks      int    `json:"networks"`
+	KeyPairs      int    `json:"key_pairs"`
+	SecurityGroups int  `json:"security_groups"`
+}
+
+// QuotaUsage represents current usage against quotas
+type QuotaUsage struct {
+	Quota Quota `json:"quota"`
+	Usage struct {
+		Instances     int `json:"instances"`
+		Cores         int `json:"cores"`
+		RAM           int `json:"ram"`
+		Volumes       int `json:"volumes"`
+		VolumesGB     int `json:"volumes_gb"`
+		FloatingIPs   int `json:"floating_ips"`
+		Networks      int `json:"networks"`
+		KeyPairs      int `json:"key_pairs"`
+		SecurityGroups int `json:"security_groups"`
+	} `json:"usage"`
+}
+
+// UpdateQuotaRequest represents a request to update quotas
+type UpdateQuotaRequest struct {
+	QuotaSet struct {
+		Instances     *int `json:"instances,omitempty"`
+		Cores         *int `json:"cores,omitempty"`
+		RAM           *int `json:"ram,omitempty"`
+		Volumes       *int `json:"volumes,omitempty"`
+		VolumesGB     *int `json:"volumes_gb,omitempty"`
+		FloatingIPs   *int `json:"floating_ips,omitempty"`
+		Networks      *int `json:"networks,omitempty"`
+		KeyPairs      *int `json:"key_pairs,omitempty"`
+		SecurityGroups *int `json:"security_groups,omitempty"`
+	} `json:"quota_set"`
+}
